@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Flowlist — Your Daily To-Do</title>
+<meta name="description" content="Flowlist is a private to-do list app. Organize tasks into lists, set priorities and due dates, and track your progress — all data stays on your device.">
+<meta name="theme-color" content="#2D6A4A">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<div class="statusbar"><span>Flowlist</span><span>●●●</span></div>
+<div class="toprow"><div class="toprow-left"><span class="dot"></span> Flowlist</div></div>
+
+<div class="wrap">
+  <div id="appContent">
+
+  <div class="head-row">
+    <div class="head-title">
+      <h1 id="pageTitle">Tasks</h1>
+      <p id="taskCount">0 tasks</p>
+    </div>
+    <div class="head-actions">
+      <div class="sq-btn" id="settingsBtn" title="Settings">⚙</div>
+    </div>
+  </div>
+
+  <!-- TODAY / TASKS PAGE -->
+  <div class="page active" id="page-today">
+
+    <div class="summary-card">
+      <div class="consistency-hero">
+        <div class="consistency-ring" id="completionRing">
+          <div class="consistency-hole">
+            <div class="cr-value" id="completionValue">0%</div>
+            <div class="cr-label">Done today</div>
+          </div>
+        </div>
+        <div class="consistency-stats">
+          <div class="cstat"><div class="label">Pending</div><div class="value" id="statPending">0</div></div>
+          <div class="cstat"><div class="label">Completed</div><div class="value" id="statCompleted">0</div></div>
+          <div class="cstat"><div class="label">Overdue</div><div class="value val-miss" id="statOverdue">0</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="filter-row">
+      <div class="seg-control" id="filterSeg">
+        <button class="seg-btn active" data-filter="all">All</button>
+        <button class="seg-btn" data-filter="active">Active</button>
+        <button class="seg-btn" data-filter="done">Done</button>
+      </div>
+      <button class="sort-btn" id="sortBtn">↕ Sort</button>
+    </div>
+
+    <div id="lists"></div>
+  </div>
+
+  <!-- PROGRESS PAGE -->
+  <div class="page" id="page-progress">
+    <div class="head-row" style="margin-top:20px;">
+      <div class="head-title"><h1 style="font-size:22px;">Progress</h1><p>Your last 7 days</p></div>
+    </div>
+    <div id="progressContent"></div>
+  </div>
+
+  <!-- LISTS PAGE -->
+  <div class="page" id="page-lists">
+    <div class="head-row" style="margin-top:20px;">
+      <div class="head-title"><h1 style="font-size:22px;">Lists</h1><p>Where your tasks live</p></div>
+      <div class="head-actions"><div class="sq-btn" id="addListBtn" title="New list">+</div></div>
+    </div>
+    <div id="listsContent"></div>
+  </div>
+
+  <!-- LIST DETAIL PAGE -->
+  <div class="page" id="page-list-detail">
+    <div class="detail-topbar">
+      <button class="back-btn" id="listDetailBackBtn">← Back</button>
+    </div>
+    <div id="listDetailContent"></div>
+  </div>
+
+  <!-- MORE PAGE -->
+  <div class="page" id="page-more">
+    <div class="head-row" style="margin-top:20px;">
+      <div class="head-title"><h1 style="font-size:22px;">More</h1><p>Settings and your data</p></div>
+    </div>
+
+    <div class="settings-section" style="margin-top:16px;">
+      <div class="settings-label">Appearance</div>
+      <div class="settings-row">
+        <div class="settings-row-text"><strong>Dark mode</strong><span>Easier on the eyes at night</span></div>
+        <button class="toggle-switch" id="darkToggle"><span class="knob"></span></button>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-text"><strong>Text size</strong><span>Adjust app-wide text scale</span></div>
+      </div>
+      <div class="seg-control wrap4" id="fontSizeSeg" style="margin-top:-4px;margin-bottom:10px;">
+        <button class="seg-btn" data-fs="xsmall">XS</button>
+        <button class="seg-btn" data-fs="small">S</button>
+        <button class="seg-btn active" data-fs="medium">M</button>
+        <button class="seg-btn" data-fs="large">L</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-label">Your data</div>
+      <button class="settings-menu-btn" id="moreExportBtn"><span class="mi">⇩</span> Export backup (.json)</button>
+      <button class="settings-menu-btn" id="moreImportBtn"><span class="mi">⇧</span> Import backup</button>
+      <button class="settings-menu-btn danger" id="moreResetBtn"><span class="mi">⟲</span> Reset all data</button>
+      <input type="file" id="importFile" accept="application/json" style="display:none;">
+    </div>
+
+    <p style="font-size:12.5px;color:var(--gray);text-align:center;margin-top:24px;line-height:1.6;">
+      Everything here lives only on this device.<br>No account, no server, no tracking.
+    </p>
+  </div>
+
+  </div><!-- /#appContent -->
+</div>
+
+<button class="fab" id="fabBtn">+</button>
+
+<div class="bottomnav">
+  <div class="nav-item active" data-page="today"><span>✓</span>Tasks</div>
+  <div class="nav-item" data-page="progress"><span>📈</span>Progress</div>
+  <div class="nav-item" data-page="lists"><span>🗂</span>Lists</div>
+  <div class="nav-item" data-page="more"><span>⋯</span>More</div>
+</div>
+
+<div class="toast" id="toast">
+  <span class="toast-msg" id="toastMsg"></span>
+  <button class="toast-undo" id="toastUndoBtn" style="display:none;">Undo</button>
+</div>
+
+<!-- add/edit task sheet -->
+<div class="overlay" id="taskFormOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h2 id="taskFormTitle">New task</h2>
+    <p class="sheet-sub">What do you need to get done?</p>
+
+    <div class="field">
+      <label>Task name</label>
+      <input type="text" id="tTitle" placeholder="e.g. Reply to client email" maxlength="80">
+    </div>
+
+    <div class="field">
+      <label>List</label>
+      <select id="tList"></select>
+    </div>
+
+    <div class="field">
+      <label>Priority</label>
+      <div class="seg-control" id="prioritySeg">
+        <button type="button" class="seg-btn" data-priority="low">Low</button>
+        <button type="button" class="seg-btn active" data-priority="med">Medium</button>
+        <button type="button" class="seg-btn" data-priority="high">High</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Due date (optional)</label>
+      <input type="date" id="tDue">
+    </div>
+
+    <div class="field">
+      <label>Notes (optional)</label>
+      <textarea id="tNotes" placeholder="Any extra detail…"></textarea>
+    </div>
+
+    <div class="sheet-actions">
+      <button class="btn-cancel" id="taskFormCancel">Cancel</button>
+      <button class="btn-save" id="taskFormSave">Save task</button>
+    </div>
+  </div>
+</div>
+
+<!-- task action sheet (edit / delete) -->
+<div class="overlay" id="actionOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h2>Manage task</h2>
+    <p class="sheet-sub" id="actionSub"></p>
+    <button class="choice-btn" id="actionEdit">
+      <div class="choice-icon edit">✎</div>
+      <div class="choice-text"><strong>Edit task</strong><span>Change the name, list, or due date</span></div>
+    </button>
+    <button class="choice-btn" id="actionDelete">
+      <div class="choice-icon delete">🗑</div>
+      <div class="choice-text"><strong>Delete task</strong><span>Removes it for good</span></div>
+    </button>
+    <button class="btn-cancel" id="actionCancel" style="width:100%;">Cancel</button>
+  </div>
+</div>
+
+<!-- new/edit list sheet -->
+<div class="overlay" id="listFormOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h2 id="listFormTitle">New list</h2>
+    <p class="sheet-sub">Group related tasks together</p>
+
+    <div class="field">
+      <label>List name</label>
+      <input type="text" id="lName" placeholder="e.g. Work, Personal, Shopping" maxlength="30">
+    </div>
+    <div class="field">
+      <label>Icon</label>
+      <div class="icon-picker" id="iconPicker"></div>
+    </div>
+    <div class="field">
+      <label>Color</label>
+      <div class="color-picker" id="colorPicker"></div>
+    </div>
+
+    <div class="sheet-actions">
+      <button class="btn-cancel" id="listFormCancel">Cancel</button>
+      <button class="btn-save" id="listFormSave">Save list</button>
+    </div>
+    <button class="btn-delete" id="listFormDelete" style="display:none;">Delete this list</button>
+  </div>
+</div>
+
+<!-- sort sheet -->
+<div class="overlay" id="sortOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header-row">
+      <h2>Sort tasks</h2>
+      <button class="sheet-x" id="sortCloseX" aria-label="Close">✕</button>
+    </div>
+    <p class="sheet-sub">Choose how to order your list</p>
+    <div class="check-list" id="sortOptions">
+      <label class="check-row"><input type="radio" name="sortRadio" data-sort-radio="due-asc"><span class="radio-box"></span><span class="check-label">Due date: Soonest first</span></label>
+      <label class="check-row"><input type="radio" name="sortRadio" data-sort-radio="priority-desc"><span class="radio-box"></span><span class="check-label">Priority: High to Low</span></label>
+      <label class="check-row"><input type="radio" name="sortRadio" data-sort-radio="name-asc"><span class="radio-box"></span><span class="check-label">Name A–Z</span></label>
+      <label class="check-row"><input type="radio" name="sortRadio" data-sort-radio="created-desc"><span class="radio-box"></span><span class="check-label">Newest first</span></label>
+    </div>
+  </div>
+</div>
+
+<!-- generic confirm sheet -->
+<div class="overlay" id="confirmOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h2 id="confirmTitle">Are you sure?</h2>
+    <p class="sheet-sub" id="confirmSub"></p>
+    <div class="sheet-actions">
+      <button class="btn-cancel" id="confirmCancelBtn">Cancel</button>
+      <button class="btn-save danger" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/app.js"></script>
+
+</body>
+</html>
