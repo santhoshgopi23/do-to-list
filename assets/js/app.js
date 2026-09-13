@@ -18,7 +18,7 @@ const LISTS_KEY = 'flowlist_lists_v1';
 const SETTINGS_KEY = 'flowlist_settings_v1';
 const EXPANDED_KEY = 'flowlist_expanded_v1';
 
-let tasks = [];   // [{id,title,notes,listId,priority,dueDate,done,createdAt,completedAt}]
+let tasks = [];   // [{id,title,notes,listId,priority,dueDate,done,createdAt,completedAt,reminderAt,reminderFired}]
 let lists = [];   // [{id,name,icon,colorIdx,createdAt}]
 let settings = { dark:false, fontSize:'medium' };
 let expandedLists = new Set(); // list ids currently expanded on the Tasks page
@@ -51,6 +51,15 @@ function fmtDue(dateStr){
   return {label, overdue};
 }
 function priorityRank(p){ return p==='high'?3:p==='med'?2:1; }
+function fmtReminder(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return '';
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const timePart = d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+  if(sameDay) return timePart;
+  return d.toLocaleDateString(undefined,{month:'short', day:'numeric'})+' '+timePart;
+}
 
 /* ---------- persistence ---------- */
 function loadAll(){
@@ -89,7 +98,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
   bindSort();
   bindMore();
   bindConfirm();
+  bindReminderField();
   renderAll();
+  updateNotifPermUI();
+  startReminderWatcher();
 });
 
 function applySettings(){
@@ -189,8 +201,8 @@ function renderToday(){
   document.getElementById('statCompleted').textContent = done;
   document.getElementById('statOverdue').textContent = overdue;
   const ring = document.getElementById('completionRing');
-  const color = pct===0 ? '#EEEAE0' : 'var(--green)';
-  ring.style.background = `conic-gradient(${color} 0 ${pct}%, #EEEAE0 ${pct}% 100%)`;
+  const color = pct===0 ? 'var(--track)' : 'var(--accent)';
+  ring.style.background = `conic-gradient(${color} 0 ${pct}%, var(--track) ${pct}% 100%)`;
 
   const openCount = pending;
   document.getElementById('taskCount').textContent = openCount + (openCount===1?' task':' tasks');
@@ -250,6 +262,7 @@ function taskEntryHtml(t){
   const due = fmtDue(t.dueDate);
   const pillClass = t.priority==='high'?'pill-high':t.priority==='med'?'pill-med':'pill-low';
   const pillLabel = t.priority==='high'?'High':t.priority==='med'?'Medium':'Low';
+  const showReminder = t.reminderAt && !t.done && !t.reminderFired;
   return `
     <div class="entry" data-task-id="${t.id}">
       <div class="status-toggle ${t.done?'done':''}" data-toggle-id="${t.id}">
@@ -262,6 +275,7 @@ function taskEntryHtml(t){
           <span>${list ? escapeHtml(list.name) : 'No list'}</span>
           ${due ? `<span class="${due.overdue && !t.done ?'val-miss':''}">• ${due.overdue && !t.done ? 'Overdue · ' : ''}${due.label}</span>` : ''}
           <span class="pill ${pillClass}">${pillLabel}</span>
+          ${showReminder ? `<span class="pill pill-reminder">🔔 ${fmtReminder(t.reminderAt)}</span>` : ''}
         </div>
       </div>
       <button class="entry-menu" data-menu-id="${t.id}">⋯</button>
@@ -318,6 +332,7 @@ function openTaskForm(id){
   document.querySelectorAll('#prioritySeg .seg-btn').forEach(b=>{
     b.classList.toggle('active', b.dataset.priority === (t ? t.priority : 'med'));
   });
+  setReminderFieldState(t && t.reminderAt ? t.reminderAt : '');
   showOverlay('taskFormOverlay');
   setTimeout(()=> document.getElementById('tTitle').focus(), 200);
 }
@@ -330,17 +345,102 @@ function saveTaskForm(){
   const dueDate = document.getElementById('tDue').value || '';
   const priorityBtn = document.querySelector('#prioritySeg .seg-btn.active');
   const priority = priorityBtn ? priorityBtn.dataset.priority : 'med';
+  const reminderOn = document.getElementById('reminderToggle').classList.contains('on');
+  const reminderAt = reminderOn ? (document.getElementById('tReminder').value || '') : '';
 
   if(editingTaskId){
     const t = taskById(editingTaskId);
-    if(t){ t.title=title; t.listId=listId; t.notes=notes; t.dueDate=dueDate; t.priority=priority; }
+    if(t){
+      const reminderChanged = t.reminderAt !== reminderAt;
+      t.title=title; t.listId=listId; t.notes=notes; t.dueDate=dueDate; t.priority=priority;
+      t.reminderAt = reminderAt;
+      if(reminderChanged) t.reminderFired = false;
+    }
   } else {
-    tasks.push({ id:uid('t'), title, notes, listId, priority, dueDate, done:false, createdAt:todayStr(), completedAt:null });
+    tasks.push({ id:uid('t'), title, notes, listId, priority, dueDate, done:false, createdAt:todayStr(), completedAt:null, reminderAt, reminderFired:false });
   }
+  if(reminderAt) requestNotifPermission();
   saveTasks();
   hideOverlay('taskFormOverlay');
   renderAll();
   showToast(editingTaskId ? 'Task updated' : 'Task added');
+}
+
+/* ---------- reminders ---------- */
+function bindReminderField(){
+  const toggle = document.getElementById('reminderToggle');
+  toggle.addEventListener('click', ()=>{
+    const turningOn = !toggle.classList.contains('on');
+    setReminderFieldState(turningOn ? (document.getElementById('tReminder').value || defaultReminderValue()) : '');
+    if(turningOn) requestNotifPermission();
+  });
+}
+function defaultReminderValue(){
+  const d = new Date(Date.now() + 60*60*1000); // one hour from now, rounded to 5 min
+  d.setSeconds(0,0);
+  d.setMinutes(Math.ceil(d.getMinutes()/5)*5);
+  const pad = n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function setReminderFieldState(value){
+  const toggle = document.getElementById('reminderToggle');
+  const input = document.getElementById('tReminder');
+  const hint = document.getElementById('reminderHint');
+  const on = !!value;
+  toggle.classList.toggle('on', on);
+  input.style.display = on ? 'block' : 'none';
+  input.value = value || defaultReminderValue();
+  if(!on){ hint.textContent=''; return; }
+  if(window.Notification && Notification.permission === 'denied'){
+    hint.textContent = 'Notifications are blocked in your browser settings — Flowlist will still show an in-app alert while this tab is open.';
+  } else {
+    hint.textContent = 'Works while Flowlist is open in your browser.';
+  }
+}
+function requestNotifPermission(){
+  if(!('Notification' in window)) return;
+  if(Notification.permission === 'default'){
+    Notification.requestPermission().then(updateNotifPermUI);
+  }
+}
+function updateNotifPermUI(){
+  const btn = document.getElementById('notifPermBtn');
+  const status = document.getElementById('notifPermStatus');
+  const sub = document.getElementById('notifPermSub');
+  if(!btn) return;
+  if(!('Notification' in window)){
+    status.textContent = 'Unsupported'; sub.textContent = 'This browser can\'t show notifications';
+    btn.disabled = true; return;
+  }
+  if(Notification.permission === 'granted'){ status.textContent='Enabled'; sub.textContent='You\'ll get a notification when a reminder is due'; }
+  else if(Notification.permission === 'denied'){ status.textContent='Blocked'; sub.textContent='Allow notifications in your browser\'s site settings'; }
+  else { status.textContent='Enable'; sub.textContent='Tap to allow reminder alerts'; }
+}
+function startReminderWatcher(){
+  checkReminders();
+  setInterval(checkReminders, 20000);
+}
+function checkReminders(){
+  const now = new Date();
+  let changed = false;
+  tasks.forEach(t=>{
+    if(!t.reminderAt || t.done || t.reminderFired) return;
+    const when = new Date(t.reminderAt);
+    if(isNaN(when.getTime()) || when > now) return;
+    fireReminder(t);
+    t.reminderFired = true;
+    changed = true;
+  });
+  if(changed){ saveTasks(); renderAll(); }
+}
+function fireReminder(t){
+  const list = listById(t.listId);
+  const body = list ? `In ${list.name}` : 'Flowlist reminder';
+  if(window.Notification && Notification.permission === 'granted'){
+    try{ new Notification('⏰ '+t.title, { body, tag:t.id }); }catch(e){}
+  } else {
+    showToast('Reminder: '+t.title);
+  }
 }
 
 /* ---------- action sheet (edit/delete) ---------- */
@@ -593,6 +693,16 @@ function bindMore(){
     });
   });
 
+  document.getElementById('notifPermBtn').addEventListener('click', ()=>{
+    if(!('Notification' in window)) return;
+    if(Notification.permission === 'default') Notification.requestPermission().then(updateNotifPermUI);
+    else if(Notification.permission === 'denied') showToast('Blocked — allow notifications in your browser\'s site settings');
+    else showToast('Notifications already enabled');
+  });
+
+  document.getElementById('exportExcelBtn').addEventListener('click', exportExcel);
+  document.getElementById('exportPdfBtn').addEventListener('click', exportPdf);
+
   document.getElementById('moreExportBtn').addEventListener('click', exportBackup);
   document.getElementById('moreImportBtn').addEventListener('click', ()=> document.getElementById('importFile').click());
   document.getElementById('importFile').addEventListener('change', importBackup);
@@ -618,6 +728,104 @@ function exportBackup(){
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
   showToast('Backup exported');
+}
+
+/* ---------- export: Excel (.xlsx) ---------- */
+function taskRows(){
+  const all = tasks.slice().sort((a,b)=>{
+    if(a.done!==b.done) return a.done ? 1 : -1;
+    const ad = a.dueDate || '9999-99-99', bd = b.dueDate || '9999-99-99';
+    if(ad!==bd) return ad<bd?-1:1;
+    return priorityRank(b.priority)-priorityRank(a.priority);
+  });
+  return all.map(t=>{
+    const list = listById(t.listId);
+    return {
+      'Task': t.title,
+      'List': list ? list.name : 'No list',
+      'Priority': t.priority==='high'?'High':t.priority==='med'?'Medium':'Low',
+      'Due date': t.dueDate || '',
+      'Reminder': t.reminderAt ? new Date(t.reminderAt).toLocaleString() : '',
+      'Status': t.done ? 'Done' : 'Pending',
+      'Notes': t.notes || '',
+      'Created': t.createdAt || '',
+      'Completed': t.completedAt || ''
+    };
+  });
+}
+function exportExcel(){
+  if(typeof XLSX === 'undefined'){ showToast('Export library failed to load — check your connection'); return; }
+  const rows = taskRows();
+  if(!rows.length){ showToast('No tasks to export'); return; }
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:28},{wch:14},{wch:10},{wch:12},{wch:18},{wch:10},{wch:30},{wch:12},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
+
+  const listRows = lists.map(l=>{
+    const listTasks = tasks.filter(t=>t.listId===l.id);
+    return { 'List': l.name, 'Total tasks': listTasks.length, 'Completed': listTasks.filter(t=>t.done).length, 'Open': listTasks.filter(t=>!t.done).length };
+  });
+  const ws2 = XLSX.utils.json_to_sheet(listRows);
+  ws2['!cols'] = [{wch:20},{wch:12},{wch:12},{wch:10}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Lists summary');
+
+  XLSX.writeFile(wb, 'flowlist-tasks-'+todayStr()+'.xlsx');
+  showToast('Excel file exported');
+}
+
+/* ---------- export: clean PDF ---------- */
+function exportPdf(){
+  if(typeof window.jspdf === 'undefined'){ showToast('Export library failed to load — check your connection'); return; }
+  const rows = taskRows();
+  if(!rows.length){ showToast('No tasks to export'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit:'pt', format:'a4' });
+  const accent = [108,92,231];
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  doc.setFillColor(accent[0], accent[1], accent[2]);
+  doc.rect(0, 0, pageWidth, 74, 'F');
+  doc.setTextColor(255,255,255);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(20);
+  doc.text('Flowlist — Task Report', 40, 34);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(10.5);
+  const total = tasks.length, done = tasks.filter(t=>t.done).length;
+  doc.text(`Generated ${new Date().toLocaleString()}  ·  ${done} of ${total} tasks completed`, 40, 52);
+
+  doc.autoTable({
+    startY: 96,
+    head: [['Task','List','Priority','Due','Status','Notes']],
+    body: rows.map(r=>[r['Task'], r['List'], r['Priority'], r['Due date'], r['Status'], r['Notes']]),
+    styles: { font:'helvetica', fontSize:9.5, cellPadding:6, lineColor:[230,228,240], lineWidth:0.5, textColor:[28,27,41] },
+    headStyles: { fillColor: accent, textColor:255, fontStyle:'bold' },
+    alternateRowStyles: { fillColor:[247,246,252] },
+    columnStyles: {
+      0:{cellWidth:130}, 1:{cellWidth:70}, 2:{cellWidth:55}, 3:{cellWidth:60}, 4:{cellWidth:55}, 5:{cellWidth:'auto'}
+    },
+    didParseCell: function(data){
+      if(data.section==='body' && data.column.index===2){
+        const v = data.cell.raw;
+        if(v==='High') data.cell.styles.textColor = [228,72,60];
+        else if(v==='Medium') data.cell.styles.textColor = [217,138,43];
+        else if(v==='Low') data.cell.styles.textColor = [18,183,163];
+      }
+      if(data.section==='body' && data.column.index===4 && data.cell.raw==='Done'){
+        data.cell.styles.textColor = [18,183,163];
+      }
+    },
+    didDrawPage: function(data){
+      const pageCount = doc.internal.getNumberOfPages();
+      doc.setFontSize(8.5);
+      doc.setTextColor(140,138,160);
+      doc.text('Flowlist  ·  Page '+doc.internal.getCurrentPageInfo().pageNumber+' of '+pageCount, 40, doc.internal.pageSize.getHeight()-20);
+    }
+  });
+
+  doc.save('flowlist-tasks-'+todayStr()+'.pdf');
+  showToast('PDF exported');
 }
 
 function importBackup(e){
