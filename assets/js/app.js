@@ -102,6 +102,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
   renderAll();
   updateNotifPermUI();
   startReminderWatcher();
+  const pill = document.getElementById('navPill');
+  if(pill) pill.style.transition = 'none';
+  updateChromeFor(currentPage());
+  if(pill) requestAnimationFrame(()=> requestAnimationFrame(()=>{ pill.style.transition=''; }));
 });
 
 function applySettings(){
@@ -132,12 +136,11 @@ function bindNav(){
   document.getElementById('fabBtn').addEventListener('click', ()=> openTaskForm(null));
   document.getElementById('addListBtn').addEventListener('click', ()=> openListForm(null));
 }
-function goToPage(page){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  const target = document.getElementById('page-'+page);
-  if(target) target.classList.add('active');
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.page===page));
+const PAGE_ORDER = ['today','progress','lists','list-detail','more'];
+const NAV_PAGES = ['today','progress','lists','more'];
+let pageAnimating = false;
 
+function updateChromeFor(page){
   const titleEl = document.getElementById('pageTitle');
   const countEl = document.getElementById('taskCount');
   const headRow = document.querySelector('.wrap > #appContent > .head-row');
@@ -151,6 +154,48 @@ function goToPage(page){
   }
   if(page==='progress') renderProgress();
   if(page==='lists') renderLists();
+
+  const navKey = page==='list-detail' ? 'lists' : page;
+  document.querySelectorAll('.nav-item').forEach(n=> n.classList.toggle('active', n.dataset.page===navKey));
+  const pill = document.getElementById('navPill');
+  const navIdx = NAV_PAGES.indexOf(navKey);
+  if(pill && navIdx!==-1) pill.style.transform = `translateX(${navIdx*100}%)`;
+}
+
+function goToPage(page){
+  const current = document.querySelector('.page.active');
+  const target = document.getElementById('page-'+page);
+  if(!target || target===current || pageAnimating) return;
+
+  const curId = current ? current.id.replace('page-','') : null;
+  const oi = curId ? PAGE_ORDER.indexOf(curId) : -1;
+  const ni = PAGE_ORDER.indexOf(page);
+  const forward = (oi===-1 || ni===-1) ? true : ni>oi;
+
+  const finishEnter = ()=>{
+    target.classList.remove('p-enter-fwd','p-enter-back');
+    pageAnimating = false;
+  };
+
+  const showTarget = ()=>{
+    target.classList.add('active');
+    updateChromeFor(page);
+    const enterClass = forward ? 'p-enter-fwd' : 'p-enter-back';
+    target.classList.add(enterClass);
+    target.addEventListener('animationend', finishEnter, {once:true});
+  };
+
+  if(current){
+    pageAnimating = true;
+    const exitClass = forward ? 'p-exit-fwd' : 'p-exit-back';
+    current.classList.add(exitClass);
+    current.addEventListener('animationend', ()=>{
+      current.classList.remove('active', exitClass);
+      showTarget();
+    }, {once:true});
+  } else {
+    showTarget();
+  }
 }
 
 /* ================= TODAY / TASKS PAGE ================= */
@@ -190,6 +235,7 @@ function getFilteredSortedTasks(scopeListId){
 }
 
 function renderToday(){
+  rowAnimSeq = 0;
   const total = tasks.length;
   const done = tasks.filter(t=>t.done).length;
   const pending = total - done;
@@ -201,8 +247,7 @@ function renderToday(){
   document.getElementById('statCompleted').textContent = done;
   document.getElementById('statOverdue').textContent = overdue;
   const ring = document.getElementById('completionRing');
-  const color = pct===0 ? 'var(--track)' : 'var(--accent)';
-  ring.style.background = `conic-gradient(${color} 0 ${pct}%, var(--track) ${pct}% 100%)`;
+  ring.style.setProperty('--ring-pct', pct);
 
   const openCount = pending;
   document.getElementById('taskCount').textContent = openCount + (openCount===1?' task':' tasks');
@@ -256,6 +301,9 @@ function bindCategoryEvents(wrap){
   wrap.querySelectorAll('.cat-body').forEach(body=> bindTaskEntryEvents(body));
 }
 
+let rowAnimSeq = 0;
+function nextRowDelay(){ const d = Math.min(rowAnimSeq, 9) * 26; rowAnimSeq++; return d; }
+
 function taskEntryHtml(t){
   const list = listById(t.listId);
   const c = colorFor(list);
@@ -264,7 +312,7 @@ function taskEntryHtml(t){
   const pillLabel = t.priority==='high'?'High':t.priority==='med'?'Medium':'Low';
   const showReminder = t.reminderAt && !t.done && !t.reminderFired;
   return `
-    <div class="entry" data-task-id="${t.id}">
+    <div class="entry" data-task-id="${t.id}" style="animation-delay:${nextRowDelay()}ms">
       <div class="status-toggle ${t.done?'done':''}" data-toggle-id="${t.id}">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
       </div>
@@ -302,6 +350,10 @@ function toggleTaskDone(id){
   saveTasks();
   renderAll();
   showToast(t.done ? 'Marked done' : 'Marked not done');
+  document.querySelectorAll(`.status-toggle[data-toggle-id="${id}"]`).forEach(el=>{
+    el.classList.add('pop');
+    el.addEventListener('animationend', ()=> el.classList.remove('pop'), {once:true});
+  });
 }
 
 /* ---------- task form (add/edit) ---------- */
@@ -507,7 +559,7 @@ function renderProgress(){
     const pct = Math.round((counts[i]/maxCount)*100);
     return `<div class="bar-row">
       <div class="bar-row-top"><span class="bn">${names[dow]}</span><span class="bv">${counts[i]}</span></div>
-      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="bar-track"><div class="bar-fill" data-pct="${pct}"></div></div>
     </div>`;
   }).join('');
 
@@ -539,6 +591,9 @@ function renderProgress(){
       </div>
     </div>
   `;
+  requestAnimationFrame(()=> requestAnimationFrame(()=>{
+    el.querySelectorAll('.bar-fill').forEach(b=>{ b.style.width = b.dataset.pct+'%'; });
+  }));
 }
 
 /* ================= LISTS PAGE ================= */
@@ -548,12 +603,12 @@ function renderLists(){
     el.innerHTML = `<div class="empty-state"><div class="glyph">🗂</div><p>No lists yet.<br>Tap + to create one.</p></div>`;
     return;
   }
-  el.innerHTML = lists.map(l=>{
+  el.innerHTML = lists.map((l,i)=>{
     const c = colorFor(l);
     const listTasks = tasks.filter(t=>t.listId===l.id);
     const openCount = listTasks.filter(t=>!t.done).length;
     return `
-      <div class="list-card" data-list-id="${l.id}">
+      <div class="list-card" data-list-id="${l.id}" style="animation-delay:${Math.min(i,9)*30}ms">
         <div class="list-avatar" style="background:${c.hex}">${l.icon}</div>
         <div class="list-main">
           <div class="list-cname">${escapeHtml(l.name)}</div>
@@ -573,6 +628,7 @@ function renderLists(){
 }
 
 function renderListDetail(listId){
+  rowAnimSeq = 0;
   const l = listById(listId);
   const el = document.getElementById('listDetailContent');
   if(!l){ el.innerHTML=''; return; }
